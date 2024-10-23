@@ -142,12 +142,18 @@ class SimpleMultiplyTask : public IRunnable {
 
         void runTask(int task_id, int num_total_tasks) {
             // handle case where num_elements is not evenly divisible by num_total_tasks
+    // printf("taskid: %d\n", task_id);
+    // printf("start\n");
             int elements_per_task = (num_elements_ + num_total_tasks-1) / num_total_tasks;
             int start_el = elements_per_task * task_id;
             int end_el = std::min(start_el + elements_per_task, num_elements_);
 
-            for (int i=start_el; i<end_el; i++)
-                array_[i] = multiply_task(3, array_[i]);
+            for (int i=start_el; i<end_el; i++) {
+
+              array_[i] = multiply_task(3, array_[i]);
+              // printf("%d ", array_[i]);
+            }
+    // printf("end \n");
         }
 };
 
@@ -544,6 +550,7 @@ TestResults simpleTest(ITaskSystem* t, bool do_async) {
 
         for (int j=0; j<num_bulk_task_launches; j++)
             value = SimpleMultiplyTask::multiply_task(3, value);
+        // printf("expected value: %d\n", value);
 
         int expected = value;
         if (array[i] != expected) {
