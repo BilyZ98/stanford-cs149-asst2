@@ -114,7 +114,7 @@ public:
   // I guess we should just iterate all task_id to see 
   // if we can schedule them.
   // void CheckAndRemoveDep(TaskID child_task_id);
-  void FinishTask(TaskID task_id);
+  void FinishTask(TaskID task_id, std::vector<TaskID>& children_tasks);
   TaskID GetNewTaskID();
   int GetFinishedTaskCount() const ;
   int GetTotalTaskCount() const { return task_id_.load();}
@@ -126,6 +126,7 @@ public:
 private:
   std::atomic<TaskID> task_id_;
   std::unordered_map<TaskID, std::unordered_set<TaskID>> dependent_parents_;
+  std::unordered_map<TaskID, std::unordered_set<TaskID>> dependent_children_;
   std::unordered_set<TaskID> finished_task_ids_;
   std::unordered_set<TaskID> scheduled_task_ids_;
   std::unordered_map<TaskID, TaskArg> task_args_;
@@ -152,17 +153,22 @@ class TaskSystemParallelThreadPoolSleeping: public ITaskSystem {
 private:
   void threadTask( );
 
-  void FinishOneSubTask(TaskID task_id) ;
+  bool FinishOneSubTask(TaskID task_id, std::vector<TaskID>& children_task) ;
   void ScheduleTaskToReadyQueue(TaskID task_id);
+  // void CheckFinishedParentTask(TaskID task_id, )
+  // bool CheckTaskAndMoveToReadyQueue();
+
   // bool CheckAndMoveTaskToReadyQueue(TaskID child_task_id);
   // void CheckAndNotify(TaskID child_task_id);
   std::vector<std::thread> workers_;
   int num_threads_;
   bool done_;
+  std::atomic<bool> wait_sync_;
   std::mutex mutex_;
   std::condition_variable cv_;
   std::deque<threadArg> ready_queue_;
   std::unordered_map<TaskID, int> taskid_remain_work_count_map_;
+  std::unordered_set<TaskID> scheduled_task_ids_;
   TaskDep task_dep_;
 
 

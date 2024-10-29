@@ -8,39 +8,3 @@ Running task system grading harness... (22 total tests)
 ================================================================================
 Executing test: super_super_light...
 Reference binary: ./runtasks_ref_linux
-Results for: super_super_light
-                                        STUDENT   REFERENCE   PERF?
-[Serial]                                8.616     12.209      0.71  (OK)
-[Parallel + Always Spawn]               8.573     56.31       0.15  (OK)
-[Parallel + Thread Pool + Spin]         8.635     21.013      0.41  (OK)
-[Parallel + Thread Pool + Sleep]        8.42      28.41       0.30  (OK)
-================================================================================
-Executing test: super_super_light_async...
-Reference binary: ./runtasks_ref_linux
-Results for: super_super_light_async
-                                        STUDENT   REFERENCE   PERF?
-[Serial]                                8.706     12.433      0.70  (OK)
-[Parallel + Always Spawn]               8.406     56.047      0.15  (OK)
-[Parallel + Thread Pool + Spin]         8.27      25.412      0.33  (OK)
-[Parallel + Thread Pool + Sleep]        224.619   24.681      9.10  (NOT OK)
-================================================================================
-Executing test: super_light...
-Reference binary: ./runtasks_ref_linux
-Results for: super_light
-                                        STUDENT   REFERENCE   PERF?
-[Serial]                                81.672    97.057      0.84  (OK)
-[Parallel + Always Spawn]               81.592    84.665      0.96  (OK)
-[Parallel + Thread Pool + Spin]         81.367    35.343      2.30  (NOT OK)
-[Parallel + Thread Pool + Sleep]        81.867    33.25       2.46  (NOT OK)
-================================================================================
-Executing test: super_light_async...
-Reference binary: ./runtasks_ref_linux
-Results for: super_light_async
-                                        STUDENT   REFERENCE   PERF?
-[Serial]                                82.485    95.578      0.86  (OK)
-[Parallel + Always Spawn]               81.039    81.133      1.00  (OK)
-[Parallel + Thread Pool + Spin]         81.268    34.526      2.35  (NOT OK)
-[Parallel + Thread Pool + Sleep]        408.665   31.755      12.87  (NOT OK)
-================================================================================
-Executing test: ping_pong_equal...
-Reference binary: ./runtasks_ref_linux

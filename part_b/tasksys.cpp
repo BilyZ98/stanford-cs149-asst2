@@ -135,15 +135,32 @@ int TaskDep::GetFinishedTaskCount() const  {
   return finished_tasks_.load();
 }
 
-void TaskDep::FinishTask(TaskID task_id) {
+void TaskDep::FinishTask(TaskID task_id, std::vector<TaskID>& children_tasks) {
   finished_task_ids_.insert(task_id);
   finished_tasks_.fetch_add(1);
+  // remove this parent from all of its children.
+  for(TaskID child_task_id: dependent_children_[task_id] ) {
+    dependent_parents_[child_task_id].erase(task_id);
+    // If child has no parent dependency , we change schedule it
+    if(dependent_parents_[child_task_id].empty()) {
+      children_tasks.emplace_back(child_task_id);
+    }
+    // if(dependent_children_[child_task_id].find(task_id) != dependent_children_[child_task_id].end()) {
+    //   dependent_children_[child_task_id].erase(task_id);
+    // }
+    // if(dependent_parents_[child_task_id].empty()) {
+    //   children_tasks.emplace_back(child_task_id);
+    // }
+
+  }
 }
-void TaskSystemParallelThreadPoolSleeping::FinishOneSubTask(TaskID task_id) {
+bool TaskSystemParallelThreadPoolSleeping::FinishOneSubTask(TaskID task_id, std::vector<TaskID>& children_tasks) {
   if(--taskid_remain_work_count_map_[task_id] ==0 ) {
     // printf("task:%d finished\n", task_id);
-    task_dep_.FinishTask(task_id);
+    task_dep_.FinishTask(task_id, children_tasks);
+    return true;
     }
+  return false; 
 }
 
 bool TaskDep::CheckAndGetRunnableTasks(std::vector<TaskID>& tasks) {
@@ -196,6 +213,7 @@ void TaskDep::AddTaskDep(TaskID child, std::vector<TaskID> deps, IRunnable* runn
   if(!deps.empty()) {
   for(TaskID task_id: deps) {
     dependent_parents_[child].insert(task_id);
+    dependent_children_[task_id].insert(child);
   }
 
   } else {
@@ -208,18 +226,7 @@ void TaskSystemParallelThreadPoolSleeping::threadTask( ) {
   std::unique_lock<std::mutex> lock(mutex_);
   std::vector<TaskID> tasks;
   bool get_new_tasks_to_run = false;
-  // get_new_tasks_to_run = task_dep_.CheckAndGetRunnableTasks(tasks);
-  // for(TaskID task_id : tasks){
-  //   ScheduleTaskToReadyQueue(task_id);
-  // }
-  // tasks.clear();
-
-  while(!done_ || !ready_queue_.empty() || task_dep_.HasTaskToSchedule()) {
-    get_new_tasks_to_run = task_dep_.CheckAndGetRunnableTasks(tasks);
-    for(TaskID task_id: tasks) {
-      ScheduleTaskToReadyQueue(task_id);
-    }
-    tasks.clear();
+    while(!done_ || !ready_queue_.empty() ) {
     threadArg arg ; 
     bool get_task = false;
     if(!ready_queue_.empty()) {
@@ -236,27 +243,53 @@ void TaskSystemParallelThreadPoolSleeping::threadTask( ) {
     if(get_task) {
       int task_thread_id = arg.task_thread_id;
       int task_id = arg.task_id;
+      bool cur_task_finished = false;
+      std::vector<TaskID> children_task_to_schedule;
       arg.runnable->runTask(task_thread_id, arg.num_total_tasks);
       {
         std::unique_lock<std::mutex> inner_lock(mutex_);
         // printf("taskid: %d, thread_id: %d finished\n", task_id, task_thread_id);
-        FinishOneSubTask(task_id);
+        cur_task_finished = FinishOneSubTask(task_id, children_task_to_schedule);
+        if(!children_task_to_schedule.empty()) {
+          for(TaskID child_task_id: children_task_to_schedule){
+            ScheduleTaskToReadyQueue(child_task_id);
+            // Is sthis ok ?
+            // cv_.notify_all();
+          }
+        }
       }
       // Move notify_all out of mutex scope so that 
       // other threads can wake up and do some work
-      // if(cur_task_finished || has_moved_to_ready_queue) {
-      //   cv_.notify_all();
+      // if(!ready_queue_.empty()  ) {
       // }
-    cv_.notify_all();
+      if(!children_task_to_schedule.empty() || wait_sync_.load()) {
+        cv_.notify_all();
+      }
     }
     lock.lock();
   }
 }
 
+// bool TaskSystemParallelThreadPoolSleeping::CheckTaskAndMoveToReadyQueue() {
+//   std::vector<TaskID> tasks;
+//     bool get_new_tasks_to_run = task_dep_.CheckAndGetRunnableTasks(tasks);
+//     for(TaskID task_id: tasks) {
+//       ScheduleTaskToReadyQueue(task_id);
+//     }
+//     // tasks.clear();
+//   return get_new_tasks_to_run;
+
+// }
 // Prerequisite: mutex_ is held
 void  TaskSystemParallelThreadPoolSleeping::ScheduleTaskToReadyQueue(TaskID task_id) {
   TaskArg task_arg;
   task_dep_.GetTaskArg(task_id, task_arg);
+  bool not_scheduled = scheduled_task_ids_.find(task_id) == scheduled_task_ids_.end() ;
+  if(not_scheduled  ){
+    scheduled_task_ids_.insert(task_id);
+    // printf("new task schedule:%d\n", child_task_id);
+    // to_erase.emplace_back(child_task_id);
+  }
   for(int i=0; i < task_arg.num_total_tasks; i++) {
     threadArg ta(i, task_arg.num_total_tasks, task_arg.runnable, task_id);
     taskid_remain_work_count_map_[task_id] = task_arg.num_total_tasks;
@@ -299,7 +332,6 @@ TaskSystemParallelThreadPoolSleeping::~TaskSystemParallelThreadPoolSleeping() {
   cv_.notify_all();
   // printf("destructor\n");
   for(int i=0; i < workers_.size(); i++) {
-    // cv_.notify_all();
     if(workers_[i].joinable()) {
       workers_[i].join();
     }
@@ -316,38 +348,13 @@ void TaskSystemParallelThreadPoolSleeping::run(IRunnable* runnable, int num_tota
     // tasks sequentially on the calling thread.
     //
 
-    for (int i = 0; i < num_total_tasks; i++) {
-        runnable->runTask(i, num_total_tasks);
-    }
+    // for (int i = 0; i < num_total_tasks; i++) {
+    //     runnable->runTask(i, num_total_tasks);
+    // }
+  std::vector<TaskID> deps;
+  runAsyncWithDeps(runnable, num_total_tasks, deps);
+  sync();
 }
-
-// The lock has be held in order to call this function
-// We should definitely call notify_all after checking.
-// Need to wake up wokers
-// bool TaskSystemParallelThreadPoolSleeping::CheckAndMoveTaskToReadyQueue(TaskID task_id ) {
-//   const TaskArg& task_arg = task_id_remaining_dependent_parents_count_[task_id];
-//   bool moved = false;
-//   printf("task:%d remain parent cound: %d\n", task_id, task_arg.remain_dep_parent_task_count);
-//   if(task_arg.remain_dep_parent_task_count == 0) {
-//     moved = true;
-//     printf("task:%d moved to ready_queue\n", task_id);
-//     for(int i=0; i < task_arg.num_total_tasks; i++) {
-//       threadArg ta(i, task_arg.num_total_tasks, task_arg.runnable, task_id);
-//       ready_queue_.emplace_back(ta);
-//     }
-
-//   }
-//   return moved;
-
-// }
-
-// void TaskSystemParallelThreadPoolSleeping::CheckAndNotify(TaskID child_task_id) {
-//   CheckAndMoveTaskToReadyQueue(child_task_id);
-//   mutex_.unlock();
-//   cv_.notify_all();
-//   mutex_.lock();
-
-// }
 
 // Two places to shcedule tasks and put tasks to ready_queue_ directly 
 // or move tasks in task_queue_ to ready_queue_ at the start of runAsyncWithDeps call
@@ -361,10 +368,25 @@ TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnabl
 
   mutex_.lock();
   TaskID new_task = task_dep_.GetNewTaskID();
-  task_dep_.AddTaskDep(new_task, deps, runnable, num_total_tasks);
-  // printf("task: %d dep count: %ld\n", new_task, deps.size());
+  printf("task: %d dep count: %ld, dep id:%d\n", new_task, deps.size(), deps.empty() ? 0 : deps[0]);
+  // CheckTaskAndMoveToReadyQueue();
+  std::vector<TaskID> new_deps;
+  for(TaskID parent_task_id: deps) {
+    if(!task_dep_.CheckTaskFinished(parent_task_id)) {
+      new_deps.emplace_back(parent_task_id);
+
+    }
+  }
+  task_dep_.AddTaskDep(new_task, new_deps, runnable, num_total_tasks);
+  bool scheduled = false;
+  if(new_deps.empty()) {
+    ScheduleTaskToReadyQueue(new_task);
+    scheduled = true;
+  } 
   mutex_.unlock();
-  cv_.notify_all();
+  if(scheduled) {
+    cv_.notify_all();
+  }
 
 
   return new_task;
@@ -378,11 +400,13 @@ void TaskSystemParallelThreadPoolSleeping::sync() {
   std::unique_lock<std::mutex> lock(mutex_);
   // In case all threads atre put to sleep
 
+  wait_sync_.store(true);
 
   while(!ready_queue_.empty() || task_dep_.GetFinishedTaskCount() != task_dep_.GetTotalTaskCount()  ) {
     // printf("finished task count:%d, task_id:%d\n", finished_tasks_.load(), task_id_.load());
     cv_.wait(lock);
-    // printf("finished task count:%d, task_id:%d\n", finished_tasks_.load(), task_id_.load());
+    // printf("finished task count:%d, task_id:%d\n", task_dep_.GetFinishedTaskCount(), task_dep_.GetTotalTaskCount());
   }
+  wait_sync_.store(false);
     return;
 }
